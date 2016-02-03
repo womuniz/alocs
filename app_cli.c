@@ -39,17 +39,17 @@ int main (int argc, char *argv[]) {
 		switch(opcao) {
 
 			case 'p': {
-				put_pair(2015,"C COMPLETO E TOTAL"); 
+				put_pair("2015","C COMPLETO E TOTAL"); 
 				
 				break;
 			}
 			case 'r': {
-				rem_pair(2015);
+				rem_pair("2015");
 				
 				break;
 			}
 			case 'g': {
-				get_pair(2015,&pair);
+				get_pair("2015",&pair);
 				
 				printf("pair:%s",pair);
 				
@@ -64,7 +64,7 @@ int main (int argc, char *argv[]) {
 				break;
 			}
 			case 'c': {
-				retOper = create_bucket(diretorio,nome_bucket,2000,2020);
+				retOper = create_bucket(diretorio,nome_bucket,"2000","2020");
 				
 				break;
 			}
