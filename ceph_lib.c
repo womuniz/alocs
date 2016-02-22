@@ -2,7 +2,7 @@
 
 /*TODO encerrar contexto de io quando ocorrer falha de io*/
 
-rados_t create_handle(){
+void create_handle(rados_t *cls_handle){
 
 	/* Initialize the cluster handle with the "ceph" cluster name and the "client.admin" user */
 	
@@ -10,10 +10,9 @@ rados_t create_handle(){
 	char cluster_name[] = "ceph";
 	char user_name[] = "client.admin";
 	uint64_t flags;
-	rados_t cluster;
 	
 	//create handle
-	error = rados_create2(&cluster, cluster_name, user_name, flags);
+	error = rados_create2(cls_handle, cluster_name, user_name, flags);
 	if(error < 0){
 		fprintf(stderr, "[create_handle/ceph_lib.c] Couldn't create the cluster handle! %s\n", strerror(-error));
 		
@@ -21,7 +20,7 @@ rados_t create_handle(){
 	}
 	
 	/* Read a Ceph configuration file to configure the cluster handle. */
-	error =  rados_conf_read_file(cluster, "/etc/ceph/ceph.conf");
+	error =  rados_conf_read_file(*cls_handle, "/etc/ceph/ceph.conf");
 	if(error < 0){
 		fprintf(stderr, "[create_handle/ceph_lib.c] Cannot read config file: %s\n", strerror(-error));
 		
@@ -29,18 +28,31 @@ rados_t create_handle(){
 	}
 	
 	/* Connect to the cluster */
-	error = rados_connect(cluster);
+	error = rados_connect(*cls_handle);
 	if(error < 0){
 		fprintf(stderr, "[create_handle/ceph_lib.c] Cannot connect to cluster: %s\n", strerror(-error));
 		
 		exit(EXIT_FAILURE);
 	}
-	
-	return cluster;
+
 }
 
 void cluster_shutdown(rados_t *cluster){
-	rados_shutdown(cluster);
+	rados_shutdown(*cluster);
+}
+
+int create_ioctx(rados_t cluster, char *poolname,rados_ioctx_t *io_ctx){
+
+	error =  rados_ioctx_create(cluster, poolname, io_ctx);
+	if(error < 0)
+		fprintf(stderr, "[create_ioctx/ceph_lib.c] Cannot create IO context: %s!\n", strerror(-error));
+	
+	return error;
+	
+}
+
+void destroy_ioctx(rados_ioctx_t *io_ctx){
+	rados_ioctx_destroy(io_ctx);
 }
 
 rados_read_op_t create_read_op(void){
@@ -91,30 +103,13 @@ int remove_pool(rados_t cluster, const char * pool_name){
 	return 0;
 }
 
-rados_ioctx_t create_ioctx(rados_t cluster, char *poolname){
-
-	rados_ioctx_t io_ctx;
-	
-	error =  rados_ioctx_create(cluster, poolname, &io_ctx);
-	if(error < 0)
-		fprintf(stderr, "[create_ioctx/ceph_lib.c] Cannot open rados pool : %s\n",strerror(-error));
-		
-	return io_ctx;
-	
-}
-
-void destroy_ioctx(rados_ioctx_t *io_ctx){
-	rados_ioctx_destroy(io_ctx);
-}
-
-rados_completion_t create_completion(rados_completion_t *comp){
+int create_completion(rados_completion_t *comp){
 	
 	error =  rados_aio_create_completion(NULL, NULL, NULL, comp);
 	if(error < 0)
 		fprintf(stderr, "[create_completion/ceph_lib.c] Could not create aio completion: %s\n",strerror(-error));
 		
-	return comp;
-
+	return error;
 }
 
 int read_object(rados_ioctx_t io_ctx,char *obj_id,char *read_res,size_t len_buff,uint64_t offset,int async){
@@ -127,23 +122,26 @@ int read_object(rados_ioctx_t io_ctx,char *obj_id,char *read_res,size_t len_buff
 	int ret_oper;
 	
 	if(async){
-	  comp = create_completion(&comp);
-	
-	  /* Next, read data using rados_aio_read. */
-	  error =  rados_aio_read(io_ctx,obj_id,comp,read_res,len_buff,offset);
-	  if(error >= 0){
-		  /* Wait for the operation to complete */
-	    rados_aio_wait_for_complete(comp);
-	    ret_oper = rados_aio_get_return_value(comp); //retorno apos o tempo de espera 
-			if(ret_oper < 0){
-				fprintf(stderr, "[read_object/ceph_lib.c] Cannot read object. %s\n", strerror(-error));
-				rados_aio_release(comp);
-				
-				return 1; //retorna 1 indicando que operacao falhou
+	  error = create_completion(&comp);
+		if(error >= 0){
+			/* Next, read data using rados_aio_read. */
+			error =  rados_aio_read(io_ctx,obj_id,comp,read_res,len_buff,offset);
+			if(error >= 0){
+				/* Wait for the operation to complete */
+				rados_aio_wait_for_complete(comp);
+				ret_oper = rados_aio_get_return_value(comp); //retorno apos o tempo de espera 
+				if(ret_oper < 0){
+					fprintf(stderr, "[read_object/ceph_lib.c] Cannot read object. %s\n", strerror(-error));
+					rados_aio_release(comp);
+					
+					return 1; //retorna 1 indicando que operacao falhou
+				}
 			}
-	  }
+		}
+		else
+			return 1;
 		/* Release the asynchronous I/O complete handle to avoid memory leaks. */
-	  rados_aio_release(comp);		
+	  rados_aio_release(comp);
 	}else
 	  error =  rados_read(io_ctx,obj_id,read_res,len_buff,offset);	
 	
@@ -162,19 +160,24 @@ int write_object(rados_ioctx_t io_ctx,char *obj_id,char *buffer,size_t len_buff,
 	int ret_oper;
 	
 	if(async){
-		comp = create_completion(&comp);
-	
-		error =  rados_aio_write(io_ctx, obj_id,comp,buffer,len_buff, 0);
+		error = create_completion(&comp);
 		if(error >= 0){
-			rados_aio_wait_for_complete(comp);
-	    ret_oper = rados_aio_get_return_value(comp); //retorno apos o tempo de espera 
-			if(ret_oper < 0){
-				fprintf(stderr, "[read_object/ceph_lib.c] Cannot write object. %s\n", strerror(-error));
-				rados_aio_release(comp);
-				
-				return 1; //retorna 1 indicando que operacao falhou
+			error =  rados_aio_write(io_ctx, obj_id,comp,buffer,len_buff, offset);
+			if(error >= 0){
+				rados_aio_wait_for_complete(comp);
+				ret_oper = rados_aio_get_return_value(comp); //retorno apos o tempo de espera 
+				if(ret_oper < 0){
+					fprintf(stderr, "[write_object/ceph_lib.c] Cannot write object. %s\n", strerror(-error));
+					rados_aio_release(comp);
+					
+					return 1; //retorna 1 indicando que operacao falhou
+				}
 			}
-		}	
+		}
+		else
+			return 1;
+		/* Release the asynchronous I/O complete handle to avoid memory leaks. */
+	  rados_aio_release(comp);	
 	}else
 		error =  rados_write(io_ctx, obj_id, buffer, len_buff, offset);
 	

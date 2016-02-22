@@ -7,16 +7,16 @@
 #define CEPH_LIB_H
 
 //variavel que recebe o retorno das operacoes 
-int error;
+unsigned int error;
 
 //create cluster handle
-void create_handle(rados_t *cls_handle);
+rados_t create_handle();
 
 //cluster shutdown
 void cluster_shutdown(rados_t *cluster);
 
 //create io context
-int create_ioctx(rados_t cluster, char *poolname,rados_ioctx_t *io_ctx);
+rados_ioctx_t create_ioctx(rados_t cluster, char *poolname);
 
 //destroy io context
 void destroy_ioctx(rados_ioctx_t *io_ctx);
@@ -28,7 +28,7 @@ rados_read_op_t create_read_op(void);
 void release_read_op(rados_read_op_t *read_op);
 
 //create completion
-int create_completion(rados_completion_t *comp);
+rados_completion_t create_completion(rados_completion_t *comp);
 
 //create pool
 int create_pool(rados_t cluster, const char * pool_name, uint8_t crush_rule_num);

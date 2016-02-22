@@ -31,29 +31,31 @@
 
 int retOper;
 
-
-
 /********************************************
  *inicio funcoes de gerenciamento
  ********************************************/
-int init_ssystem(void){
-	init_rados();
+int init_ssystem(){
+	retOper = init_rados();
 	
-	return 0;
+	return init_rados();
 }
 
-int fin_ssystem(void){
-	fin_rados();
+int fin_ssystem(){
+	retOper = fin_rados();
 	
-	return 0;
+	return retOper;
 }
 
-int init_api(void){
-	return init_ssystem();
+int init_api(){
+	retOper = init_ssystem();
+	
+	return retOper;
 }
 
-int fin_api(void){
-	return fin_ssystem();
+int fin_api(){
+	retOper = fin_ssystem();
+	
+	return retOper;
 }
 
 /********************************************
@@ -69,7 +71,7 @@ int clean(void){
 /*assinatura: int create_bucket(char *dirName,char *idBucket,double inikey,double finkey)
  *descricao: Requisita a criação de um Bucket em Diretorio especificado nos parametros de entrada,
  *em conjunto com o identificador do Bucket, e o intervalo de chaves que sera armazenado*/
-int create_bucket(char *dirName,char *idBucket,KEY_T iniKey,KEY_T finKey){
+int create_bucket(char *dirName,char *idBucket,uint64_t iniKey,uint64_t finKey){
 	
 	/* No futuro, verificar se o create_bucket avisa se
 	* um bucket com mesmo nome ja existe, hoje,
@@ -108,8 +110,8 @@ int drop_bucket(char *idBucket){
 	char dirName[10];
 	char srvName[6];
 	
-	strcpy(dirName,'dir1');
-	strcpy(srvName,'server1');
+	strcpy(dirName,"dir1");
+	strcpy(srvName,"server1");
 	
 	/*sequencia de operacoes
 	 *1)obter localizacao do bucket
@@ -203,7 +205,7 @@ int dropALL_dir(char *dirName){
 /*assinatura: int get_pair(KEY_T key)
  *descricao: Requisita um par chave-valor identificado por uma chave especificada como parametro de entrada.
  *O Bucket e identificado pelo sistema de Metadados baseado no intervalo de chaves*/
-void get_pair(KEY_T key,PAIR_T *pair){
+int get_pair(KEY_T key,PAIR_T *pair){
 	
 	/*locality_t locality;
 	 */
@@ -214,9 +216,9 @@ void get_pair(KEY_T key,PAIR_T *pair){
 	BUCKET_T buff_bucket;
 	
 	//eliminar posteriormente 
-	strcpy(srvName,'server1');
-	strcpy(dirName,'dir1');
-	strcpy(idBucket,'bucket1');
+	strcpy(srvName,"server1");
+	strcpy(dirName,"dir1");
+	strcpy(idBucket,"bucket1");
 	
 	/*sequencia de operacoes
 	 *1)obter localizacao da chave
@@ -229,14 +231,16 @@ void get_pair(KEY_T key,PAIR_T *pair){
 	locality = get(key);*/
 	
 	//2) solicitar ao SA o bucket
-	retOper = ss_get_bucket(srvName,dirName,srvName,&buff_bucket);
-	if(!retOper){ //get_bucket retorna 1 para falha e 0 para sucesso
+	retOper = ss_get_bucket(srvName,dirName,idBucket,&buff_bucket);
+	if(retOper == 0){ //get_bucket retorna 1 para falha e 0 para sucesso
 		//3) extrair o par chave_valor
 		retOper = extractPair(&buff_bucket,key,pair);
 		
 		//remover este free posteriormente os dados ficaram em cache
-		free(buff_bucket);	
-	}	
+		free(buff_bucket);
+	}
+
+	return retOper;
 			
 }
 
@@ -256,9 +260,9 @@ int put_pair(KEY_T key,char *value){
 	 *3)retornar para a aplicacao*/
 	
 	//eliminar posteriormente
-	strcpy(srvName,'server1');
-	strcpy(dirName,'dir1');
-	strcpy(idBucket,'bucket1');
+	strcpy(srvName,"server1");
+	strcpy(dirName,"dir1");
+	strcpy(idBucket,"bucket1");
 	
 	/*1) obter localizacao da chave
 	locality deve ser um struct para colocar na sequencia servidor/diretorio
@@ -281,9 +285,9 @@ int rem_pair(KEY_T key){
 	char idBucket[10];
 	
 	//eliminar posteriormente
-	strcpy(srvName,'server1');
-	strcpy(dirName,'dir1');
-	strcpy(idBucket,'bucket1');
+	strcpy(srvName,"server1");
+	strcpy(dirName,"dir1");
+	strcpy(idBucket,"bucket1");
 	
 	/*sequencia de operacoes
 	 *1)obter localizacao da chave

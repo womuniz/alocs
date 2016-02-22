@@ -12,9 +12,43 @@
 * 	implementar as operacoes que faltam (is_Empty(),copy_dir())
 * 	ajustar a rados_stat chamada na get_bucket para ser chamada na ceph_lib
 * 	REVISAR TODAS AS PASSAGENS DE PARAMETRO PARA VER SE ESTAO CORRETAS
-*   verificar com o Patrick como trataremos o tipo de dados da chave pois a funcao int_to_str() nao suporta o tamanho do inteiro
+*   verificar com o Patrick como trataremos o tipo de dados da chave pois a funcao ntochr() nao suporta o tamanho do inteiro
 */
 #include "iceph.h"
+
+/*
+***********************************************
+* Funcoes de gerenciamento 
+***********************************************
+*/
+
+/*
+* Funcao que inicia o rados(), conecta no cluster
+* arquivo de configuracao: /etc/ceph/ceph.conf
+*/
+int init_rados() {
+	
+	// cria o manipulador do cluster
+	create_handle(&cluster);
+	if(cluster == NULL){
+		fprintf(stderr,"[init_rados/iceph.c] cannot create a cluster handle\n");
+		
+		return 1;
+	}
+	
+	return 0;
+}
+
+/*
+* Funcao que termina a conexao com o rados
+* 
+*/
+int fin_rados(){
+	
+	cluster_shutdown(&cluster);  // desconecta do cluster
+	
+	return 0;
+}
 
 /**********************************
 DEFINICAO OPERACOES INTERFACE S.A.
@@ -28,9 +62,9 @@ DEFINICAO OPERACOES INTERFACE S.A.
 	*|----------|----------|----------|----------|----------|
 	 |qtdChaves | bitmap   | OFFSET#1 | LENGTH#1 | KEY#1    |  
 	 |----------|----------|----------|----------|----------|
-	 |  KEY#2   | OFFSET#2 |LENGTH#2  |   ...    |   KEY#N  |
+	 |OFFSET#2  | LENGTH#2 | KEY#2    |   ...    | OFFSET#N |
 	 |----------|----------|----------|----------|----------|
-	 | OFFSET#N | LENGTH#N | VALUE#1  ...  VALUE#N          |
+	 | LENGTH#N | KEY#N    | VALUE#1  ...  VALUE#N          |
 	 |----------|----------|--------------------------------|
 	*
 	*max_keys = inteiro
@@ -42,12 +76,12 @@ DEFINICAO OPERACOES INTERFACE S.A.
 	*
 	*slot (key+offset+length)
 */
-int ss_create_bucket(char *srvName,char *dirName,char *idBucket,int maxKeys) {
+int ss_create_bucket(char *srvName,char *dirName,char *idBucket,unsigned int maxKeys) {
 	
-	char *header,*p_slot;
+	char *header;
 	unsigned char bitMap[maxKeys+1];
 	unsigned int hsize,i;
-	char slot[SLOT_SIZE];
+	char caux[5];
 	
 	//header creation
 	//inicializacao do bitMap,preenche o vetor com zeros e o ultimo caracter nulo
@@ -56,38 +90,47 @@ int ss_create_bucket(char *srvName,char *dirName,char *idBucket,int maxKeys) {
 	
 	//define o tamanho do header, para a criacao do bucket
 	hsize = HEADER_SIZE(maxKeys);
-	header = (unsigned char*) malloc (hsize * sizeof(unsigned char));
-	if(header == NULL){
-		printf("[create_bucket/iceph.c] Memory error\n");
-		exit(EXIT_FAILURE);
-	}
-
+	header = (unsigned char*) xmalloc(hsize * sizeof(unsigned char));
+	
 	//insere o valor para max_keys
-	int_to_str(p_slot, maxKeys); // converte de int para char[4];
-	strcpy(header,p_slot);
+	ntochr(caux, maxKeys); // converte de int para char[4];
+	strcpy(header,caux);
 	
 	// concatena com o MapaBit
 	strcat(header,bitMap);
 	
 	//preenche o restante do header com espacos em branco 
+	//TODO melhorar isso aqui
 	for(i = strlen(header);i < (hsize - 1);i++)
 		header[i] = ' ';
-	header[i] = '\0';
+	header[i] = '\n';
 
 	// conecta no pool/diretorio
-	ioctx = create_ioctx(cluster, dirName);
-	if(ioctx != NULL){	
-		// Inicialmente cria um bucket com a quantidade de triplas
-		state = write_object_full(ioctx, idBucket, header, hsize);
-		free(header);
+	if(cluster != NULL){
+		state = create_ioctx(cluster,dirName,&ioctx);
 		
-		//encerra o contexto de io
-		destroy_ioctx(&ioctx);
+		if(state >= 0){	
+			// Inicialmente cria um bucket com a quantidade de triplas
+			state = write_object_full(ioctx, idBucket, header, hsize);
+			free(header);
+			
+			//encerra o contexto de io
+			destroy_ioctx(&ioctx);
+		}
+		else{
+			fprintf(stderr,"[create_bucket/iceph.c] Diretório não localizado!\n");
+			free(header);
+			
+			return 1;
+		}
+	}else{
+	   fprintf(stderr,"[create_bucket/iceph.c] Falha na comunicação com o cluster!\n");
+		 free(header);
+		 
+		 return 1;
 	}
-	else
-		return 1;
 	
-	return state;
+	return ((state >= 0)? 0 : 1);
 }
 
 /*assinatura: int drop_bucket(char *idBucket,char *dirName,char *srvrName)
@@ -96,18 +139,21 @@ int ss_create_bucket(char *srvName,char *dirName,char *idBucket,int maxKeys) {
 int ss_drop_bucket(char *idBucket,char *dirName,char *srvName) {
 
 	// conecta no pool/diretorio
-	ioctx = create_ioctx(cluster, dirName);
-	if(ioctx != NULL){
+	state = create_ioctx(cluster, dirName,&ioctx);
+	if(state >= 0){
 		// remove o objeto do pool, dropa o bucket
 		//se a operacao falhar error > 0
 		state = remove_object(ioctx,idBucket);
 		
 		destroy_ioctx(&ioctx);
 	}
-	else
-	  return 1;
-	
-	return state;
+	else{
+		fprintf(stderr,"[drop_bucket/iceph.c] Diretório não localizado!\n");
+		
+		return 1;
+	}
+	  
+	return ((state >= 0)? 0 : 1);
 }
 
 /*assinatura: int getBucket(char *srvName,char *dirName,char *idBucket)
@@ -118,23 +164,21 @@ int ss_get_bucket(char *srvName,char *dirName,char *idBucket, BUCKET_T *buff_buc
 	time_t mtime;
 	
 	// conecta no pool/diretorio
-	ioctx = create_ioctx(cluster, dirName);
-	if(ioctx != NULL){
+	state = create_ioctx(cluster,dirName,&ioctx);
+	if(state >= 0){
 		//obtem o tamanho do objeto/bucket e a data de modficacao
 		state = get_object_size(ioctx, idBucket, &len_bucket, &mtime);
-		if(state < 0){
-			*buff_bucket = (BUCKET_T ) malloc(len_bucket);
-			if(*buff_bucket == NULL){
-				printf("[getBucket/iceph.c] Memory error\n");
-				exit(EXIT_FAILURE);
-			}
+		if(state >= 0){
+			*buff_bucket = (BUCKET_T) xmalloc(len_bucket);
 			
 			state = read_object(ioctx,idBucket,*buff_bucket,len_bucket,0,1);
 		}
 		destroy_ioctx(&ioctx);
 	}
-	
-	return ((state < 0)? 0 : 1);
+	else
+		fprintf(stderr,"[get_bucket/iceph.c] Diretório não localizado!\n");
+		
+	return ((state >= 0)? 0 : 1);
 
 }
 
@@ -150,7 +194,7 @@ int ss_create_dir(char *dirName,char *srvName){
 	  entao nesta operacao cria-se um Pool, o Pool nao e associado a servidores*/
 	state = create_pool(cluster,dirName,crush_ruleset);
 	
-	return ((state < 0) ? 1 : 0);
+	return ((state >= 0) ? 0 : 1);
 }
 
 /*assinatura: int copy_dir(char *dirName,char *srvName1,char *srvName2)
@@ -172,7 +216,7 @@ int ss_drop_dir(char *dirName,char *srvName){
 	  entao remove-se o Pool, o Pool nao e associado a servidores*/
 	state = remove_pool(cluster,dirName);
 	
-	return ((state < 0) ? 1 : 0);
+	return ((state >= 0) ? 0 : 1);
 }
 
 /*assinatura: int is_Empty(char *idBucket,char *dirName,char *srvName)
@@ -193,40 +237,37 @@ int ss_is_empty_dir(char *dirName,char *srvName){
  *objetivo: adicionar um par chave-valor no bucket passado por parametro*/
 int ss_put_pair(char *srvName,char *dirName,char *idBucket,KEY_T key,char *value){
 
-	unsigned char numKeysChr[5];
-	unsigned char *header,*p_slot;
-	unsigned int hsize, numKeys;
-	int offset,len_value,bit_pos,slot_pos;
-  
+	unsigned char numKeysChr[BYTES_LIMIT+1];
+	unsigned char *header;
+	unsigned char key_c[KEY_SLOT_SIZE];
+  unsigned int hsize,numKeys,offset,len_value,slot_pos;
+	int bit_pos;
+	
 	offset = slot_pos = 0;
 	
 	// conecta-se ao pool/diretorio
-	ioctx	=	create_ioctx(cluster, dirName);
-	if(ioctx == NULL)	
+	state	=	create_ioctx(cluster,dirName,&ioctx);
+	if(state < 0){
+		fprintf(stderr,"[put_pair/iceph.c] Diretório não localizado!\n");
 		return 1;
-	
+	}	
+		
 	/*le a qtd max de chaves para o bucket para calculo do tamanho do header
 	 *a qtd de chaves e baseada no intervalo de chaves*/ 
 	state = read_object(ioctx,idBucket,numKeysChr,BYTES_LIMIT,0,0);
 	if(state < 0)
 		 return 1;
-		
-	// converte o char[5] numKeysChr para inteiro -- 4bytes+1nulo
+	
+  // converte o char[5] numKeysChr para inteiro -- 4bytes+1nulo
 	//obtem o numero max de chaves no bucket -> baseado no intervalo de chaves 
-	numKeys = str_to_int(numKeysChr);
+	numKeys = chrton(numKeysChr);
 
 	// Define o tamanho do header como (qtd * tamanho da tripla) + qtd(mapabit) + NULL
 	hsize = HEADER_SIZE(numKeys);
 	
 	//aloca memoria para leitura do header
-	header = (char*) malloc(sizeof(char) * hsize);
-	if(header == NULL){
-		fprintf(stderr,"[put_pair/iceph.c] Memory error\n");
-		exit(EXIT_FAILURE);
-	}
+	header = (unsigned char*) xmalloc(sizeof(unsigned char) * hsize);
 	
-	*header = '\0';
-
 	/*le todo o header desconsiderando os primeiros 4 bytes correspondentes
 	 *a numMaxKeys que que neste caso nao sera necessario*/
 	state = read_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,0);
@@ -249,24 +290,20 @@ int ss_put_pair(char *srvName,char *dirName,char *idBucket,KEY_T key,char *value
 	
 		//se encontrou um slot livre (slot_pos > 0) e o tamanho do valor não excede o valor maximo entao insere  
 		if( (LIMIT_SIZE_BUCKET - (offset + len_value)) >= 0 ){
-			//insere no slot o offset para o valor 
-			p_slot = OFF_POS_SLOT((header+slot_pos));
-			int_to_str(p_slot,offset);
-	
-			//insere no slot o tamanho do valor
-			p_slot = LEN_POS_SLOT((header+slot_pos));
-			int_to_str(p_slot,len_value);
 			
-			//insere no slot a chave que identifica o par
-			p_slot = KEY_POS_SLOT((header+slot_pos));
-			/*TODO: verificar com o Patrick como trataremos o tipo de dados
-			 *da chave pois a funcao int_to_str() nao suporta o tamanho do inteiro*/
-			copy_buffer_key(p_slot,key);
+			set_slot(&header,slot_pos,offset,len_value,key);
 			
-			/*printf("header[slot_pos]:%s\n",OFF_POS_SLOT((bucket+slot_pos)));
-			printf("header[slot_pos+4]:%s\n",LEN_POS_SLOT((bucket+slot_pos)));
-			printf("header[slot_pos+8]:%s\n",KEY_POS_SLOT((bucket+slot_pos)));
-			printf("strlen(header+slot_pos):%d\n",strlen(bucket+slot_pos));*/
+			//altera o bit correspondente ao slot no mapa para ocupado
+		  header[bit_pos] = '1';
+		
+			/*atualiza o header
+				*o valor sera escrito no bucket somente se a atualizao do header for bem sucedida*/
+			state = write_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,1);
+			if(state >= 0) // insere o valor referente a chave no bucket
+				state = write_object(ioctx,idBucket,value,len_value,offset,0);
+				
+			destroy_ioctx(&ioctx);
+			free(header);
 		}
 	}
   else{
@@ -274,32 +311,16 @@ int ss_put_pair(char *srvName,char *dirName,char *idBucket,KEY_T key,char *value
 		free(header);
 		
 		//se nao -> identificar se e bucket cheio ou limite de tamanho
-		if(bit_pos < 0){
+		if(bit_pos < 0)
 			fprintf(stderr,"[put_pair/iceph.c] Bucket Cheio!\n");
-			
-			return 1;
-		}else if( ((LIMIT_SIZE_BUCKET - (offset + len_value)) < 0 ) ){
+		else if( ((LIMIT_SIZE_BUCKET - (offset + len_value)) < 0 ) )
 			fprintf(stderr,"[put_pair/iceph.c] O tamanho do par chave-valor excede o disponível do bucket!\n");
 			
-			return 1;
-		}	
+		return 1;
 	}	
 	
-	//altera o bit correspondente ao slot no mapa para ocupado
-	header[bit_pos] = '1';
-		
-	/*atualiza o header
-	 *o valor sera escrito no bucket somente se a atualizao do header for bem sucedida*/
-	state = write_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,1);
-	if(state >= 0) 
-		// insere o valor referente a chave no bucket
-		state = write_object(ioctx,idBucket,value,len_value,offset,1);
-	
-	destroy_ioctx(&ioctx);
-	free(header);
-	
 	//state retorna valor < 0 se ocorrer erro
-	return ((state < 0) ? 1 : 0);
+	return ((state >= 0) ? 0 : 1);
 } 
 
 /*assinatura: int rem_pair(char *srvName,char *dirName,char *idBucket,KEY_T key)
@@ -311,21 +332,20 @@ int ss_remove_pair(char *srvName,char *dirName,char *idBucket,KEY_T key) {
 	 *pelo identificador no Pool ou no caso do alocs por dirName que e o
 	 *identificador do diretorio*/
 	
-	unsigned char numKeysChr[5];
-	unsigned char *header;
-	unsigned int hsize;
-	int numKeys,bit_pos;
-	
-	KEY_T slot_key;
-	
-	slot_key = 0;
+	unsigned char numKeysChr[BYTES_LIMIT+1];
+	unsigned char *header,*value;
+	unsigned int hsize,numKeys,slot_pos,length,offset;
+	int bit_pos;
 	
 	// conecta-se ao pool/diretorio criando um contexto de io
-	ioctx	=	create_ioctx(cluster, dirName);
-	if(ioctx == NULL)	
+	state	=	create_ioctx(cluster,dirName,&ioctx);
+	if(state < 0){
+		fprintf(stderr,"[remove_pair/iceph.c] Diretório não localizado!\n");
 		return 1;
+	}
 
-	// le o conteudo de um objeto, neste caso, 4 bytes
+	/*recupera a qtd max de chaves do bucket para delimitar 
+	 * a busca no mapa de bits*/
 	state = read_object(ioctx,idBucket,numKeysChr,BYTES_LIMIT,0,0);
 	if(state < 0){
 		destroy_ioctx(&ioctx);
@@ -334,105 +354,56 @@ int ss_remove_pair(char *srvName,char *dirName,char *idBucket,KEY_T key) {
 	}
 
 	// converte o char[5] Quantidade para inteiro
-	numKeys = str_to_int(numKeysChr);
-
+	numKeys = chrton(numKeysChr);
 	//Define o tamanho do header 
 	hsize = HEADER_SIZE(numKeys);
 	
-	// allocate memory to contain the whole file:
-	header = (char *) malloc(sizeof(char) * hsize);
-	if(header == NULL){
-		fprintf(stderr,"[remove_pair/iceph.c] Memory error\n");
-		exit(EXIT_FAILURE);
-	}
-	*header = '\0';
+	// aloca memoria para o header
+	header = (unsigned char *) xmalloc(sizeof(unsigned char) * hsize);
 	
-	//obtem o header do bucket 
+	//obtem o header do bucket ignorando os 4 bytes iniciais que aponta a qtd max. de chaves
 	state = read_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,0);
 	if(state < 0){
-		 destroy_ioctx(&ioctx);
-		 free(header);
-		 
-		 return 1;
+		destroy_ioctx(&ioctx);
+		free(header);
+		
+		return 1;
 	}	 
 	
 	/*percorre o mapa de bits para localizar a chave
-	 *se encontrar a chave a variavel slot_key e atualizada e bit_pos
-	 *e atualizado com a posicao do bit no mapa*/
-	bit_pos = find_slot_key(&header,numKeys,key,0,slot_key);
-	if(slot_key == key) {
+	 *se encontrar a chave, bit_pos e atualizado com a posicao do bit no mapa
+	 **/
+	bit_pos = find_slot_key(&header,numKeys,key);
+	if(bit_pos >= 0) {
+		//obtem posicao do slot a partir da posicao no mapa
+		slot_pos = GET_SLOT_POS(bit_pos,numKeys);
+		
+		//obtem o length do slot
+		length = get_len_slot(header+slot_pos);
+		//obtem o offset do slot
+		offset = get_offset_slot(header+slot_pos);
+		
 		//muda o bit de ocupado para livre, liberando o slot
 	  header[bit_pos] = '0';
 		
 		//atualiza o header no bucket
-		state = read_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,1);
-		if(state < 0){
-			destroy_ioctx(&ioctx);
-			free(header);
-      
-			return 1;
-		}
-	}
-	else{
-	  fprintf(stdout,"[remove_pair/iceph.c] Chave não encontrada\n");
+		state = write_object(ioctx,idBucket,header,hsize,BYTES_LIMIT,1);
 		
-		state = -1;
+		//aloca memoria para value
+		value = (unsigned char *) xmalloc(sizeof(unsigned char) * length);
+	
+		//atualiza o valor do slot
+		memset(value,' ',length);
+		//atualiza o valor no bucket
+		state = write_object(ioctx,idBucket,value,length,offset,0);
+		
+		free(value);
 	}
+	else
+	  fprintf(stdout,"[remove_pair/iceph.c] Chave não encontrada\n");
 	
 	destroy_ioctx(&ioctx);
 	free(header);
 	
-	return ((state < 0) ? 1 : 0);
+	return ((state >= 0) ? 0 : 1);
 }
-
-/*
-***********************************************
-* Funcoes de gerenciamento 
-***********************************************
-*/
-
-/*
-* Funcao que inicia o rados(), conecta no cluster
-* arquivo de configuracao: /etc/ceph/ceph.conf
-*/
-int init_rados(void) {
-	
-	// cria o manipulador do cluster
-	cluster = create_handle();
-	if(cluster == NULL){
-		printf("[init_rados/iceph.c] cannot create a cluster handle: %s\n", error);
-		
-		return 1;
-	}
-	
-	return 0;
-}
-
-/*
-* Funcao que termina a conexao com o rados
-* 
-*/
-int fin_rados(void){
-	
-	cluster_shutdown(&cluster);  // desconecta do cluster
-	
-	return 0;
-}
-
-
-/*
-**************************************************************************
-FUNCOES AUXILIARES
-**************************************************************************
-*/
-
-
-/**************************************************************************/
-
-/*
-* Tentativa de criacao de pool com rule
-*/
-// cria um pool com uma crush_rule especifica, neste caso a -7 por conta das vms
-//state = rados_pool_create_with_crush_rule(cluster, pool, -7);
-// cria um diretorio (pool)
-//state = rados_pool_create(cluster, pool);
