@@ -22,9 +22,15 @@ FUNCOES DE GERENCIAMENTO
 ***********************************
 */
 
-int init_rados();
+/*prototipo: init_ssystem()
+ * descricao: inicializa o sistema de armazenamento 
+ * parametros: */
+int init_ssystem(void);
 
-int fin_rados();
+int fin_rados();/*prototipo: fin_ssystem()
+ * descricao: finaliza o sistema de armazenamento 
+ * parametros: */
+int fin_ssystem(void);
 
 /**********************************
 DEFINICAO OPERACOES INTERFACE S.A.
@@ -71,6 +77,10 @@ int ss_is_empty_bucket(char *idBucket,char *dirName,char *srvName);
 /*prototipo: int is_Empty(char *dirName,char *srvName)
  *objetivo: Verifica se um Diretório, especificado por parametro, está vazio, deve ser indicado tambem o Servidor*/
 int ss_is_empty_dir(char *dirName,char *srvName);
+
+/*prototipo: int (char *srvName,char *dirName,char *idBucket,KEY_T key)
+ *objetivo: Retorna o valor associado a chave key*/
+int ss_get_key(char *srvName,char *dirName,char *idBucket,KEY_T key,PAIR_T *pair);
 
 /*prototipo: int put_pair(char *srvName,char *dirName,char *idBucket,KEY_T key,char *value)
  *objetivo: Verifica se um Diretório, especificado por parametro, está vazio, deve ser indicado tambem o Servidor*/

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <string.h>
+#include <jni.h>
 #include "cache.h"
 #include "util.h"
 
@@ -55,36 +56,6 @@ typedef unsigned char *BUCKET_T;
 
 //define o tipo PAIR_T referente ao par chave valor
 typedef unsigned char *PAIR_T;
-
-/*prototipo: int init()
- * descricao: inicializa os componentes da API, sistema de armazenamento,metadados e cache
- * parametros: */
-int initialize();
-
-/*prototipo: int finalize()
- * descricao: finaliza os componentes da API, sistema de armazenamento,metadados e cache
- * parametros: */
-int finalize();
-
-/*prototipo: init_ssystem()
- * descricao: inicializa o sistema de armazenamento 
- * parametros: */
-int init_ssystem();
-
-/*prototipo: fin_ssystem()
- * descricao: finaliza o sistema de armazenamento 
- * parametros: */
-int fin_ssystem();
-
-/*prototipo: init_mds()
- * descricao: inicializa o servico de metadados
- * parametros: */
-int init_mds();
-
-/*prototipo: fin_mds()
- * descricao: finaliza o servico de metadados
- * parametros: */
-int fin_mds();
 
 /*prototipo void set_offset_slot(unsigned char**,int)
  * descricao: grava o valor do offset no slot
