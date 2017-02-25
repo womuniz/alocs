@@ -14,7 +14,7 @@ public class ConnectZoo {
     
     try{
       //zookeeper esta inicializado no ceph-mon
-      zkInstance = new ZooKeeper("100.134.1.6:2181",12000, null);
+      zkInstance = new ZooKeeper("192.168.10.16:2181",12000, null);
     }catch(IOException e){
       System.out.println(e.getMessage());  
     } 

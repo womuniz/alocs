@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <inttypes.h>
 
 #ifndef UTIL_H
@@ -8,11 +9,6 @@
 
 #define BASE 95
 #define BYTES_LIMIT 4
-#define PATH_SIZE 32
-
-//definicao do limite de tamanho do bucket
-#define LIMIT_SIZE_BUCKET 64000
-
 
 /**********************************
 DEFINICAO FUNCOES UTEIS.
@@ -21,7 +17,7 @@ DEFINICAO FUNCOES UTEIS.
 /*prototipo void itoc(unsigned char *str,size_t length, int number)
  * descricao: converte um int para char
  * parametros: str ->ponteiro para a string com o retorno
- * 						 length -> sizeof de str	
+ * 						 length -> sizeof de str
  *             number -> inteiro a ser convertido
  * retorno: string contendo o inteiro*/
 void itoc(unsigned char *str,size_t length, int number);
@@ -42,7 +38,7 @@ void itoc64(unsigned char *str,size_t length, uint64_t number);
 uint64_t ctoi(char *str,int int32);
 
 /*prototipo void ntochr(char* str, int number)
- * descricao: converte um inteiro para um caracter de 4 bytes,funcao utilizada 
+ * descricao: converte um inteiro para um caracter de 4 bytes,funcao utilizada
  * 						para guardar o length e o offset no slot limitando o tamanho a 4 bytes
  * parametros: str ->ponteiro para o caracter
  *             number ->inteiro  que ser convertido
@@ -50,7 +46,7 @@ uint64_t ctoi(char *str,int int32);
 void ntochr(char* str, int number);
 
 /*prototipo int s4toi(unsigned char* str)
- * descricao: converte um um caracter de 4 bytes para um inteiro, funcao utilizada para 
+ * descricao: converte um um caracter de 4 bytes para um inteiro, funcao utilizada para
  * 						guardar o length e o offset no slot limitando o tamanho a 4 bytes
  * parametros: str -> ponteiro para o caracter
  * retorno: um inteiro com o numero convertido*/
@@ -60,12 +56,20 @@ int chrton(char* str);
  * descricao: calculo da exponenciacao, para a conversao de char para inteiro,
  * 						utilizada na funcao s4toi
  * parametros: x -> base
- * 						 n -> expoente	
+ * 						 n -> expoente
  * retorno: inteiro com o resultado do calculo*/
 int get_exp(int x, int n);
 
+/*prototipo void init_str(char *str,char chr ,size_t len)
+ * descricao: inicializa uma string com um caracter definido
+ * parametros: char* str -> string que sera formatada,
+ *             char chr -> caracter que preenchera a string
+ *             size_t len -> tamanho da string
+ * retorno: ponteiro para a memoria alocada*/
+void init_str(char *str,char chr ,size_t len);
+
 /*prototipo void *xmalloc(size_t size)
- * descricao: aloca memoria de um determinado tamanho e retorna o ponteiro 
+ * descricao: aloca memoria de um determinado tamanho e retorna o ponteiro
  * parametros: size -> tamanho da memoria a ser alocado
  * retorno: ponteiro para a memoria alocada*/
 void *xmalloc(size_t size);

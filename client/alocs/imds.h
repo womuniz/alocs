@@ -1,13 +1,17 @@
+#include "alocs_conf.h"
+#include <jni.h>
 
 #ifndef IMDS_H
 #define IMDS_H
 
-JNIEnv* create_vm(JavaVM **jvm);
+//variavel que guarda info da jvm para o mds
+JavaVM *jvm;
+JNIEnv *env;
 
-void invoke_class_createServer(JNIEnv* env, jstring path);
-void invoke_class_createBucket(JNIEnv* env, jstring path, jint min, jint max);
-void invoke_class_createDirectory(JNIEnv* env, jstring path);
-const char * invoke_class_getKeyLocation(JNIEnv* env, jint key);
+void invoke_class_createServer(jstring path);
+void invoke_class_createBucket(jstring path, jint min, jint max);
+void invoke_class_createDir(jstring path);
+int invoke_class_getKeyLocation(jint key,const char **location);
 
 /*
 void invoke_class_deleteBucket(JNIEnv* env, jstring path);

@@ -1,253 +1,343 @@
 #include "include/cache.h"
 
-unsigned int BUFF_SIZE;
+/*prototipo unsigned int get_time()
+ * descricao: incrementa o rel. logico local
+ * parametros:
+ * retorno: timestamp que marca o tempo em que a operacao ocorreu*/
+unsigned int get_time();
+
+/*prototipo int check_limit()
+ * descricao: verifica se o limite do cache foi atingido
+ * parametros:
+ * retorno: 0 (nao atingido) 1 (atingido)*/
+int check_limit();
+
+/*prototipo HEAPLRU_T search_data(char*)
+ * descricao: localiza um bucket no cache
+ * parametros: char* key chave relacionado ao item na hash table (idBucket)
+ * retorno: a linha de cache obtida por meio do algoritmo lru*/
+HEAPLRU_T *search_data(char* key);
+
+/*prototipo LINE_T *exec_policy()
+ * descricao: executa a politica de renovacao de cache baseada na LRU
+ * parametros:
+ * retorno: a linha de cache obtida por meio do algoritmo lru*/
+LINE_T *exec_policy();
+
+/*prototipo int get_line(LINE_T)
+ * descricao: obtém uma linha de cache para alocar o bucket
+ * parametros: LINE_T **line aponta para a a area de memoria alocada para linha de cache
+ * retorno: um inteiro indicativo de falha ou sucesso*/
+int get_line(LINE_T **line);
+
+int error;
+
+//indica a posicao no vetor que mantem o cache
+int CACHE_INDX = 0;
+//mantém o relogio logico local
+unsigned int CLOCK = 0;
 
 /*prototipo int init_cache()
  * descricao: inicializa o cache no ALOCS, esta funcao e chamada na funcao init no common.c
- * parametros: 
+ * parametros:
  * retorno: um inteiro indicativo de falha ou sucesso*/
 int init_cache(){
-	
-	LOCATOR_T *loc_ptr;
-	FRAME_T *frame;
-  int pos;
-	
-	BUFF_SIZE = 0;
-	
-	//inicializa a lista de buffers sujos
-	DIRTY_BUFFERS = NULL;
-	
-	//inicializa o indice
-	LOCATOR = (LOCATOR_T *) xmalloc(sizeof(LOCATOR_T) * HT_SIZE);
 
-  loc_ptr = LOCATOR+0;
-	
-  //inicializacao de node
-  while((loc_ptr != NULL) && (loc_ptr < LOCATOR+HT_SIZE)){
-    loc_ptr->node = NULL;
-		loc_ptr++;
+	LINE_T *line;
+  int pos;
+
+	CACHE_INDX = 0;
+
+	//inicializa a lista de buffers sujos
+	DIRTY_LINES = NULL;
+
+	//cria a htable
+	create_htable();
+
+	//cria o heap para o lru
+	create_heap();
+
+	//cria o cache
+  CACHE = (LINE_T *) xmalloc(sizeof(LINE_T) * CACHE_LIMIT);
+
+	for(pos = 0;pos < CACHE_LIMIT;pos++){
+ 	  line = CACHE+pos;
+
+ 	  line->pin_count = 0;
+ 	  line->dirty = 0;
+ 	  line->locked = 0;
+
+ 	  line->data = (unsigned char *) xmalloc(sizeof(unsigned char) * LIMIT_SIZE_BUCKET);
   }
 
-	//inicializa o buffer_pool
-	BUFFER_POOL = (FRAME_T *) xmalloc(sizeof(FRAME_T) * BUFFER_LIMIT);
-	for(pos = 0;pos < BUFFER_LIMIT;pos++){
-		frame = BUFFER_POOL+pos;
-		
-		frame->pin_count = 0;
-		frame->dirty = 0;
-		frame->locked = 0;
-		memset(frame->path,'\0',PATH_SIZE+1);
-		
-		frame->buffer = (unsigned char *) xmalloc(sizeof(unsigned char) * LIMIT_SIZE_BUCKET);
-	}
+	line = NULL;
 
-	frame = NULL; 
-	
 	fprintf(stdout,"Cache inicilizado!\n");
 }
 
-/*prototipo int init_cache()
- * descricao: inicializa o cache no ALOCS, esta funcao e chamada na funcao init no common.c
- * parametros: 
+/*prototipo int fin_cache()
+ * descricao: finalizar o cache no ALOCS, esta funcao e chamada na funcao init no common.c
+ * parametros:
  * retorno: um inteiro indicativo de falha ou sucesso*/
 int fin_cache(){
-	
-	LOCATOR_T *loc_ptr;
+
 	NODELOC_T *node,*next_node;
-	FRAME_T *frame;
 	int pos;
-	
+
 	pos = 0;
-	
+
 	next_node = NULL;
-	frame = NULL;
-	
-  loc_ptr = LOCATOR+0;
-  
-	//libera a memoria utilizada por LOCATOR
-	while((loc_ptr != NULL) && (loc_ptr < LOCATOR+HT_SIZE)){
-		node = loc_ptr->node;
-		while(node != NULL){
+
+  //libera memoria utilizada pela hash table
+	for(pos = 0;pos < HTSIZE;pos++){
+    node = (LOCATOR+pos)->node;
+		while(node){
 			next_node = node->next;
-			
-			node->frame = NULL;
 			free(node);
-			
+
 			node = next_node;
 		}
-		loc_ptr++;
 	}
-  free(LOCATOR);
-	
+	free(LOCATOR);
+
 	/*libera a memoria utilizada por BUFFER_POOL
 	 *pos inicia em zero*/
-	//frame = BUFFER_POOL+pos;
-	for(pos = 0;pos < BUFFER_LIMIT;pos++){
-		frame = BUFFER_POOL+pos;
-		
-		if(frame->buffer != NULL)
-			free(frame->buffer);
-	}
-		
-	free(BUFFER_POOL);
+	free(CACHE);
+
+	//libera memoria utilizada pelo heap
+	free(HLRU);
 }
 
-/*prototipo int put_buffer(char* key,char *path,unsigned char** buffer)
+/*prototipo unsigned int get_time()
+ * descricao: incrementa o rel. logico local
+ * parametros:
+ * retorno: timestamp que marca o tempo em que a operacao ocorreu*/
+unsigned int get_time(){
+  return CLOCK++;
+}
+
+/*prototipo int check_limit()
+ * descricao: verifica se o limite do cache foi atingido
+ * parametros:
+ * retorno: 0 (nao atingido) 1 (atingido)*/
+int check_limit(){
+  //printf("[check_limit] CACHE_INDX < CACHE_LIMIT:%d\n",CACHE_INDX < CACHE_LIMIT);
+  return ((CACHE_INDX < CACHE_LIMIT)?0:1);
+}
+
+/*prototipo HEAPLRU_T search_data(char*)
+ * descricao: localiza um bucket no cache
+ * parametros: char* key chave relacionado ao item na hash table (idBucket)
+ * retorno: a linha de cache obtida por meio do algoritmo lru*/
+HEAPLRU_T *search_data(char* key){
+
+	NODELOC_T *node;
+	HEAPLRU_T *it_heap;
+
+	node = NULL;it_heap = NULL;
+
+	node = search_node_ht(key);
+  if(node)
+    it_heap = node->it_heap;
+
+	return it_heap;
+}
+
+/*prototipo LINE_T *exec_policy()
+ * descricao: executa a politica de renovacao de cache baseada na LRU
+ * parametros:
+ * retorno: a linha de cache obtida por meio do algoritmo lru*/
+LINE_T *exec_policy(){
+
+	HEAPLRU_T *it_heap;
+	LINE_T *line;
+
+  line = NULL;
+  it_heap = NULL;
+  error = 0;
+
+  it_heap = (HEAPLRU_T *) xmalloc(sizeof(HEAPLRU_T));
+
+  error = get_least_used(&it_heap);
+
+  if(!it_heap)
+    return NULL;
+
+  //recupera a linha de cache
+  line = it_heap->line;
+
+  if(!line)
+    return NULL;
+
+  //encontrou linha menos utilizada mas esta em uso no momento
+  /*printf("[exec_policy] it_heap->indx:%d\n",it_heap->indx);
+  printf("[exec_policy] line->key:%d\n",line->key);
+  printf("[exec_policy] line->data:%s\n",line->data);*/
+
+  if((line)&&(line->pin_count > 0)){
+    /*extrai itens ate encontrar linha que nao esteja em uso
+		adiciona it_heap novamente no heap incrementando o tstamp pela
+		 propriedade do heap minimo ele ira para o final do heap*/
+    while((line)&&(line->pin_count > 0)){
+      /*necessario inserir por a funcao get_least_used decrementa
+			 *o tamanho do heap,*/
+			it_heap = insert_heap_lru(line->key,get_time(),&line);
+			error = get_least_used(&it_heap);
+      line = it_heap->line;
+    }
+  }
+
+  free(it_heap);
+
+  return line;
+}
+
+/*prototipo int get_line(LINE_T)
+ * descricao: obtém uma linha de cache para alocar o bucket
+ * parametros: LINE_T **line aponta para a a area de memoria alocada para linha de cache
+ * retorno: um inteiro indicativo de falha ou sucesso*/
+int get_line(LINE_T **line){
+
+  error = 0;
+
+  if(check_limit() == 0) //nao chegou no limite
+    *line = CACHE+CACHE_INDX++;
+  else{ //exec_policy executa lru
+    *line = exec_policy();
+		if(*line){
+      //os elementos no heap não são removidos são sobrescritos
+			//printf("[get_line] line->key:%d\n",(*line)->key);
+      //printf("[get_line] line->data:%s\n",(*line)->data);
+      if((*line)->dirty == 1){  //cache modificado e nao escrito em disco
+		    error = enq_data_cache((*line)->key,*line,CURRENT_SERVER);
+				if(error){
+					fprintf(stderr, "Falha ao incluir Bucket, retirado do cache, na fila de atualizações!%s\n");
+					return 1;
+				}
+			}
+
+			//remove o bucket do cache
+			error = rm_data_cache(*line);
+    }
+  }
+
+  return ((*line)?0:1); //0 indica execucao sem erros
+}
+
+/*prototipo int put_data_cache(char*,LOCALITY*,unsigned char**)
  * descricao: adiciona um bucket no cache retornando um ponteiro para o buffer designado
  * parametros: key ->   idBucket do Bucket que esta sendo adicionado ao cache
- * 						 path ->  path do bucket no metadados por enquanto nao esta sendo utilizado
+ * 						 local ->  localizacao do bucket
  * 						 buffer-> espaco no cache designado para o bucket
- * 						 int write_oper,int acquired_lock (ESTAS VARIAVEIS DEVEM SER UTILIZADAS NO ICEPH)
- * retorno: um inteiro indicativo de falha ou sucesso na obtencao do cache*/
-int put_buffer(char* key,char *path,unsigned char** buffer){
-	
-	FRAME_T *frame;
-	NODELOC_T *new_node,*node;
-  LOCATOR_T *loc_ptr;
-	
-	loc_ptr = NULL;
-  new_node = node = NULL;
-	
-	loc_ptr = LOCATOR+get_hash(key);
-	
-  //gravacao do indice
-	if(loc_ptr == NULL)
-    return 0;
-  
-  //aloca memoria para o novo node 
-	new_node = (NODELOC_T *) xmalloc(sizeof(NODELOC_T));
-  
-  //inicializa as areas de memoria
-  memmove(new_node->key,key,KEY_SIZE);
-	
-	//seleciona o frame no buffer pool
-	if(BUFF_SIZE < BUFFER_LIMIT){
-		frame = BUFFER_POOL+BUFF_SIZE;
-		//buffer -> retorna para iceph.c a area disponivel no cache
-		if(frame != NULL){
-			frame->pin_count++;
-			memmove(frame->path,path,PATH_SIZE);
-			
-			*buffer = frame->buffer;
-			new_node->frame = frame;
-		}else 
-			return 0;
+ * retorno: hit (1 cache 0 sem cache)*/
+int put_data_cache(char* key,LOCALITY_T *local,unsigned char** buffer){
 
-		//incrementa o controle do buffer
-		BUFF_SIZE++;
-	}else //TODO:acertar renovacao do buffer
-		return 0; //se nao tiver espaco no cache retorna 1 e feita a recuperacao a partir do disco
-	
-	new_node->next = NULL;
-	
-	//adiciona a referencia do buffer no localizador 
-	//verifica se a posicao na tabela ja esta ocupada, se nao tiver inicia uma lista
-	node = loc_ptr->node;
-	if(node == NULL) 
-		loc_ptr->node = new_node;
-	else{
-		//adiciona no final da lista
-		while(node != NULL)
-			node = node->next;
-		
-		node->next = new_node;
+	HEAPLRU_T *it_heap;
+  LINE_T *line;
+  NODELOC_T *new_node;
+
+	line = NULL;
+  new_node = NULL;
+
+	/*para adicionar dados no cache
+   *1) verificar se há espaço no heap
+   *  1.1)se há espaco
+   *     adiciona
+   *  1.2)se não espaco
+   *     execRLU
+   *     adiciona
+  */
+	error = get_line(&line);
+  if(!error){ //executou sem erros
+    //printf("[put_data]encontrou linha\n");
+    strcpy(line->key,key);
+    line->pin_count += 1;
+    line->local = *local;
+
+		*buffer = line->data;
+
+    //adiciona a ref da linha de cache no heap
+    it_heap = insert_heap_lru(key,get_time(),&line);
+		if(it_heap){
+      //aloca memoria para o novo node
+      new_node = (NODELOC_T *) xmalloc(sizeof(NODELOC_T));
+
+      strcpy(new_node->key,key);
+      new_node->it_heap = it_heap;
+      new_node->next = NULL;
+
+			error = insert_node_ht(new_node);
+      if(error){
+				fprintf(stderr,"[put_data_cache/cache.c] Erro ao inserir na hash table. A inserção do dado no cache falhou.\n");
+				return 0;
+      }
+
+    }else{
+			fprintf(stderr,"[put_data_cache/cache.c] Erro ao inserir no heap. A inserção do dado no cache falhou.\n");
+			return 0;
+		}
+  }else{
+		fprintf(stderr,"[put_data_cache/cache.c] Falha ao buscar linha de cache disponível!\n");
+    return 0;
 	}
-	
+
 	return 1;
 }
 
-/*prototipo: int get_buffer(char* key, unsigned char* buffer)
- * descricao: localiza o cache referente ao bucket identificado por parametro 
+/*prototipo: int get_data_cache(char* key, unsigned char* buffer)
+ * descricao: localiza o cache referente ao bucket identificado por parametro
  * parametros: key -> id do Bucket que que sera pesquisado
- * 						 buffer -> aponta para o buffer do bucket no cache	
- * retorno: um inteiro indicativo de falha ou sucesso na busca pelo bucket*/
-int get_buffer(char* key,unsigned char** buffer){
-	
-	NODELOC_T *node,*target;
-	LOCATOR_T *loc_ptr;
-	FRAME_T *frame;
-	
-  loc_ptr = NULL;  
-  target = node = NULL;
+ * 						 buffer -> aponta para o buffer do bucket no cache
+ * retorno: (1 cache 0 sem cache)*/
+int get_data_cache(char* key,unsigned char** buffer){
 
-	loc_ptr = LOCATOR+get_hash(key);
+	HEAPLRU_T *it_heap;
+  LINE_T *line;
 
-	//se a posicao encontrar nao tiver node retorna NULL
-  if(!loc_ptr->node)
-    return 0;
+  line = NULL;it_heap = NULL;
 
-  //se a chave do primeiro node for a procurada
-	if(strcmp(loc_ptr->node->key,key) == 0)
-		target = loc_ptr->node;  
-	else if(loc_ptr->node->next){	
-    //se nao for o primeiro percorre a lista ate encontrar a chave
-    node = loc_ptr->node;		
-    while((node != NULL)&&(strcmp(node->key,key) != 0))
-			node = node->next;
-				
-		target = node;
-	}
-	
-	if(target != NULL){
-		frame = target->frame;
-		
-		if(frame != NULL){
-			frame->pin_count++;	
-			*buffer = frame->buffer;
-		}
+	it_heap = search_data(key);
+  if(it_heap){
+    /*printf("[get_data] it_heap->indx:%d\n",it_heap->indx);
+    printf("[get_data] it_heap->key:%d\n",it_heap->key);
+    if(!it_heap)
+      printf("[get_data] falha no heap\n");*/
+
+    line = it_heap->line;
+    line->pin_count += 1;
+
+    //atualiza o atributo tstamp base para o lru
+		update_tstamp_lru(it_heap->indx,get_time());
+
+		//buffer aponta para a linha disponivel
+		*buffer = line->data;
+
 		return 1;
-	}else
-	  return 0;
-	
+  }
+	return 0;
 }
 
-/*prototipo: int remove_buffer(char* key)
- * descricao: remove do cache o bucket identificado pela chave passada por parametro 
- * parametros: key ->   idBucket do Bucket que esta no cache
- * retorno: um inteiro indicativo de falha ou sucesso na obtencao do cache*/
-int remove_buffer(char *key){
-	
-	NODELOC_T *node;
-	LOCATOR_T *loc_ptr,*target;
-	FRAME_T *frame;
-	
-  target = NULL;
-  node = NULL;
- 
-	loc_ptr = LOCATOR+get_hash(key);
-	
-  if(!loc_ptr)
-    return 0;
+/*prototipo: int rm_data_cache(LINE_T*)
+ * descricao: remove do cache o bucket identificado por get_least_used()
+ * parametros: HEAPLRU_T* -> ponteiro para o item do heap
+ * retorno: um inteiro indicativo de falha ou sucesso na remocao*/
+int rm_data_cache(LINE_T *line){
 
-	if(loc_ptr->node != NULL){
-    //target aponta para o inicio da lista encadeada em LOCATOR+get_hash(key)
-		target = loc_ptr;
-    //se a lista encadeada tiver mais de um node o primeiro nao e o desejado
-    if((target->node->next) && (strcmp(target->node->key,key) != 0)){  
-      node = target->node;
-      while((node != NULL)&&(strcmp(node->next->key,key) != 0 ))
-				node = node->next;
-			
-			target->node = node->next;
-			node->next = node->next->next;
-    }
-  }
-		
-  if(target != NULL){
-		memset(target->node->key,'\0',KEY_SIZE);
-		
-		frame = target->node->frame;
-		memset(frame->buffer,'\0',LIMIT_SIZE_BUCKET);
-		memset(frame->path,'\0',PATH_SIZE);
-		
-		free(target->node);
-		target->node = NULL;
-	}
-	else
-		return 1;
-	
-	return 0;
-	
+  LOCALITY_T new_local;
+
+	memset(line->data,'\0',LIMIT_SIZE_BUCKET);
+
+	//inicializa linha de cache
+	line->pin_count = 0;
+	line->dirty = 0;
+	//line->locked = 0;
+	line->local = new_local;
+
+	//remove o node da tabela hash
+	error = remove_node_ht(line->key);
+
+	return error;
+
 }
 
 /*prototipo: int check_locked(char *key,char *lock_owner, int *locked, char* lock_owner)
@@ -257,136 +347,116 @@ int remove_buffer(char *key){
  * 						 lock_owner -> srvName que fica como o lock_owner
  * retorno: um inteiro indicativo da obtencao do lock pelo lock_owner*/
 int check_locked(char *key,char *requester, int *locked, char* lock_owner){
-	
-	LOCATOR_T *loc_ptr;
-	FRAME_T *frame;
-	int state;
-	
-  loc_ptr = NULL;  
-  frame = NULL;
 
-	loc_ptr = LOCATOR+get_hash(key);
-	
-	if(loc_ptr != NULL){
-		frame = loc_ptr->node->frame;
-		*locked = frame->locked;
-		memmove(lock_owner,frame->lock_owner,LCKOWNER_SIZE);
-		
-		if(frame->locked == 0)
-			state = 1;
-		else if(frame->locked == 1)
-			state = (strcmp(frame->lock_owner,requester) == 0 ? 1 : 0);	
+	/*TODO
+	  repensar esta funcao*/
+
+	NODELOC_T *node;
+  LINE_T *line;
+  HEAPLRU_T *it_heap;
+  int state;
+
+  line = NULL;node = NULL;
+
+	node = search_node_ht(key);
+
+  if(node){
+		line = node->it_heap->line;
+		if(line)
+			*locked = line->locked;
+
+		//memmove(lock_owner,frame->lock_owner,LCKOWNER_SIZE);
 	}
-	
-	return state;
-	
+
+	return 0;
 }
 
 /*prototipo: int find_dirty_buffers()
  * descricao: percorre o buffer pool em busca de buffers alterados (sujos)
  * 						os buffer sujos sao apontados na lista DIRTY_BUFFERS que e acessada
  * 						pela interface do sa
- * parametros: 
+ * parametros:
  * retorno: qtd de buffers alterados */
 int find_dirty_buffers(){
-	
+
+	LINE_T *line;
+	DIRTYLINES_T *lst_node,*list;
+	LOCALITY_T local;
 	int amount;
-	FRAME_T *frame;
-	DIRTYBUFF_T *lst_node,*list;
-	
+
 	amount = 0;
-	
+
 	//dirty_list = DIRTY_BUFFERS;
-	
-	frame = BUFFER_POOL+0;
-  while(frame <  (BUFFER_POOL+BUFFER_LIMIT)){
-		if(strlen(frame->path) > 0){
-			if(frame->dirty == 1){
-				lst_node = (DIRTYBUFF_T *) xmalloc(sizeof(DIRTYBUFF_T));
-				
-				memmove(lst_node->path,frame->path,PATH_SIZE);
-				lst_node->buffer = frame->buffer;
+
+	line = CACHE+0;
+  while(line < (CACHE+CACHE_LIMIT)){
+		local = line->local;
+		if(strlen(local.srvName) > 0){
+			if(line->dirty == 1){
+				lst_node = (DIRTYLINES_T *) xmalloc(sizeof(DIRTYLINES_T));
+
+				lst_node->local = line->local;
+				lst_node->data = line->data;
 				lst_node->next = NULL;
-				
-				list = DIRTY_BUFFERS;
-				if(list != NULL){
-					while(list != NULL)
+
+				list = DIRTY_LINES;
+				if(list){
+					while(list)
 						list = list->next;
-					
+
 					list->next = lst_node;
 				}else
-					DIRTY_BUFFERS = lst_node;
-				
-				amount++;	
+					DIRTY_LINES = lst_node;
+
+				amount++;
 			}
 		}
-		frame++;
+		line++;
 	}
-	
+
 	return amount;
 }
 
 /*prototipo: int set_lock(char*,char*,int)
- * descricao: altera o valor do parametro locked no buffer_pool 
+ * descricao: altera o valor do parametro locked no buffer_pool
  * parametros: key -> chave para encontrar o buffer
  * 						 lock -> valor que sera atribuido ao parametro
  * retorno: um inteiro indicativo de falha ou sucesso da operacao*/
 int set_locked(char *key,char *lock_owner,int locked){
-	
-	LOCATOR_T *loc_ptr;
-	FRAME_T *frame;
-	
-  loc_ptr = NULL;  
-  frame = NULL;
 
-	loc_ptr = LOCATOR+get_hash(key);
-	
-	if(loc_ptr != NULL){
-		frame = loc_ptr->node->frame;
-		frame->locked = locked;
-		memmove(frame->lock_owner,lock_owner,LCKOWNER_SIZE);
+	NODELOC_T *node;
+	LINE_T *line;
+
+	line = NULL;node = NULL;
+
+	node = search_node_ht(key);
+
+	if(node){
+		line = node->it_heap->line;
+		line->locked = locked;
+		//memmove(frame->lock_owner,lock_owner,LCKOWNER_SIZE);
 	}
-	
+
 	return 0;
 }
 
 /*prototipo: int set_dirty(char*,int)
- * descricao: altera o valor do parametro dirty no buffer_pool 
+ * descricao: altera o valor do parametro dirty no buffer_pool
  * parametros: key -> chave para encontrar o buffer
  * 						 dirty -> valor que sera atribuido ao parametro
  * retorno: um inteiro indicativo de falha ou sucesso da operacao*/
 int set_dirty(char *key, int dirty){
-	
-	LOCATOR_T *loc_ptr;
-	FRAME_T *frame;
-	
-  loc_ptr = NULL;  
-  frame = NULL;
 
-	loc_ptr = LOCATOR+get_hash(key);
-	
-	if(loc_ptr != NULL){
-		frame = loc_ptr->node->frame;
-		frame->dirty = dirty;
+	LINE_T *line;
+  HEAPLRU_T *it_heap;
+
+	line = NULL;it_heap = NULL;
+
+	it_heap = search_data(key);
+  if(it_heap){
+		line = it_heap->line;
+		line->dirty = dirty;
 	}
-	
+
 	return 0;
-}
-
-/*prototipo: unsigned int get_hash(char* str)
- * descricao: atribui um hash para a localizacao do bucket no cache 
- * parametros: str ->   idBucket do Bucket que esta no cache*/
-unsigned int get_hash(char* str){
-
-  int i;
-  unsigned int number,h;
-
-  number = h = 0;
- 
-  for(i = 0;i < strlen(str);i++)
-     number += *(str+i);
-
-  h = HASH(number);
-  
-  return h;
 }

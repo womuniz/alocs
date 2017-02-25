@@ -1,6 +1,6 @@
 #!/bin/bash
-#[libjvm.so+0x6e0c78]  jni_GetStringUTFChars+0xb8
-export JAVA_HOME=/usr/lib/jvm/java-8-oracle
+
+export JAVA_HOME=/usr/lib64/jdk1.8.0_25
 export JAVA_INCLUDE=$JAVA_HOME/include
 export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/amd64/server
 

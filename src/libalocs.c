@@ -29,85 +29,8 @@
 #include "include/libalocs.h"
 
 int retOper;
+LOCALITY_T local;
 
-//void aponta_dir(char *bucket,char *srvName,char *dirName);
-
-/*
- *declarados no imds.h
- *JavaVM *jvm;
-JNIEnv *env;*/
-
-/********************************************
- *inicio funcoes de auxiliares
- ********************************************/
-int parse_location(const char *location,char **srvName,char **dirName, char **idBucket){
-
-  char buff[SRVNAME_SIZE+DIRNAME_SIZE+IDBUCKET_SIZE+3];
-	
-	strcpy(buff, location);
-	srvName = buff;
-	strtok_r(buff,"/",dirName);
-	strtok_r(dirName,"/",idBucket);
-	
-	return 0;
-
-}
-
-
-/********************************************
- *inicio funcoes de gerenciamento
- ********************************************/
-int init_api(){
-
-	//inicializa sistema de armazenamento
-	retOper = init_ssystem();
-	if(retOper == 0) //inicializa o cache se o sistema de armazenamento iniciar
-    retOper = init_cache();	
-	
-	//inicializa o sistema de metadados
-	retOper = init_mds();
-	
-	return retOper;
-}
-
-int fin_api(){
-
-	DIRTYBUFF_T *lst_dirty;
-	char srv_name[SRVNAME_SIZE+1],dir_name[DIRNAME_SIZE+1],id_bucket[IDBUCKET_SIZE+1];
-	BUCKET_T buffer;
-	int state;
-	
-	state = 0;
-	
-	/*identifica os buffers sujos para atualizar
-	  no sistema de armazenamento*/
-	retOper = find_dirty_buffers();
-	if(retOper > 0){
-		lst_dirty = DIRTY_BUFFERS;
-		
-		while( (lst_dirty != NULL) && (state == 0) ){
-			//resgata o buffer
-			buffer = lst_dirty->buffer;
-			//obtem a localizacao do buffer
-			sscanf(lst_dirty->path,"%s %s %s",srv_name,dir_name,id_bucket);
-			//escreve o buffer em disco
-			state = write_buffer_disk(srv_name,dir_name,id_bucket,&buffer,strlen(buffer));
-			
-			lst_dirty = lst_dirty->next;
-		}
-	}
-	
-	if(state == 0){
-		//finaliza o cache
-		retOper = fin_cache();
-		//finaliza o sistema de armazemento
-		retOper = fin_ssystem();
-		//finaliz o sistema de metadados
-		retOper = fin_mds();
-	}
-	
-	return retOper;
-}
 
 /********************************************
  *inicio operacoes interface da aplicacao
@@ -123,32 +46,32 @@ int clean(void){
 /*assinatura: int create_server(char *srvName)
  *descricao: Requisita a criação do Servidor especificado nos parametros de entrada*/
 int create_server(char *srvName){
-	
-	//chamda do ceph
-	retOper = ss_create_server(srvName);
-	
+
+	//chamada do ceph nao e necessario criar nenhuma ref. de servidor no sa
+	//retOper = ss_create_server(srvName);
+
 	//clock_t start = clock();
-	
+
 	//chamada do metadados
 	retOper = put_server(srvName);
-	
+
 	/*clock_t stop = clock();
 	double elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
 	printf("Time elapsed in ms: %f", elapsed);*/
-	
+
 	return retOper;
 }
 
 /*assinatura: int drop_server(char *srvName)
  *descricao: Requisita a remocao do Servidor especificado nos parametros de entrada*/
-int drop_server(char *srvName){
+/*int drop_server(char *srvName){
 
 	retOper = ss_drop_server(srvName);
 	//Chamada do sistema de metadados para crear o server
 	//invoke_class_deleteServer(env, srvName);
 
 	return retOper;
-}
+}*/
 
 /*assinatura: int create_dir(char *dirName,char *srvName)
  *descricao: Requisita a criação de um Bucket em Diretorio especificado nos parametros de entrada,
@@ -157,19 +80,20 @@ int create_dir(char *dirName,char *srvName){
 
 	//clock_t start,stop;
 	//double elapsed;
-	
+
 	// fazer a chamada na interface SA para criacao do diretorio
 	retOper = ss_create_dir(dirName,srvName);
-	
+
 	//start = clock();
 
 	// chamada de metadados para crear o diretorio
-	retOper = put_dir(srvName,dirName);
+  if(!retOper) //0 indica ausencia de errors
+	  retOper = put_dir(dirName,srvName);
 
 	/*stop = clock();
 	elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
 	fprintf(stdout,"Time elapsed in ms: %f", elapsed);*/
-	
+
 	return retOper;
 }
 
@@ -232,9 +156,8 @@ int create_bucket(char *srvName,char *dirName,char *idBucket,uint64_t iniKey,uin
 	* um bucket com mesmo nome ja existe, hoje,
 	* simplesmente sobrescreve
 	*/
-	int retOper = 1;
 	unsigned int maxKeys;
-	
+
 	/*chamada da operacao create_bucket da interface S.A.
 	 *srvName deve ser buscado no metadados*/
 	maxKeys = (finKey - iniKey)+1;
@@ -245,11 +168,11 @@ int create_bucket(char *srvName,char *dirName,char *idBucket,uint64_t iniKey,uin
 	/*atualizar metadados*/
 	//invoke_class_createBucket(env, pathj, iniKey, finKey);
 	put_bucket(srvName,dirName,idBucket,iniKey,finKey);
-	
+
 	/*stop = clock();
 	double elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
 	fprintf(stdout,"Time elapsed in ms: %f", elapsed);*/
-	
+
 	return retOper;
 }
 
@@ -257,23 +180,17 @@ int create_bucket(char *srvName,char *dirName,char *idBucket,uint64_t iniKey,uin
  *descricao: Requisita a remocao de um Bucket especificado nos parametros de entrada.*/
 int drop_bucket(char *idBucket){
 
-	char dirName[10],srvName[10];
-
-	//temporario enquanto nao liga com mds
-	//aponta_dir(idBucket,srvName,dirName);
-
 	/*sequencia de operacoes
 	 *1)obter localizacao do bucket
 	 *2)remover bucket no SA
 	 *3)atualizar metadados*/
 
-	/*1) obter localizacao do bucket
-	locality deve ser um struct para colocar na sequencia servidor/diretorio
-	get(idBucket) deve retornar uma lista caso o diretorio seja replicado
-	locality = get(idBucket);*/
+	/*1) obter localizacao do bucket*/
+	//retOper = get_key_location(key,&local);
+	//fprintf(stdout,"Server: '%s'\n Directory: '%s'\n Bucket: '%s'\n", local.srvName, local.dirName, local.idBucket);
 
 	//2) remover bucket no SA
-	retOper = ss_drop_bucket(idBucket, dirName,srvName);
+	//retOper = ss_drop_bucket(&local);
 
 	/*3) atualizar metadados
 	if(retOper == 0)
@@ -287,11 +204,16 @@ int drop_bucket(char *idBucket){
  *O Bucket e identificado pelo sistema de Metadados baseado no intervalo de chaves*/
 int get_pair(KEY_T key,PAIR_T *pair){
 
-	char *srvName,*dirName,*idBucket;
 	//clock_t start,stop;
-	const char *location;
 	double elapsed;
-	
+	char *value;
+
+	/*apenas para teste de implementacao o tstamp sera fixado em 0
+	 *posteriormente o tstamp será estabelecido pelo relogio local*/
+	/*CONSIDERAR ter dois tipos de dados
+    caracter e uint64_t que nao contera zeros a esquerda*/
+	TSTAMP_T tstamp = 1;
+
 	/*sequencia de operacoes
 	 *1)obter localizacao da chave
 	 *2)solicitar ao SA o bucket
@@ -299,27 +221,19 @@ int get_pair(KEY_T key,PAIR_T *pair){
 
 	//start = clock();
 
-	/*1) obter localizacao do bucket*/ 
-	retOper = get_key_location(key,&location);
-	
-	/*strcpy(buff, location);
-	srvName=buff;
-	strtok_r(buff,"/",&dirName);
-	strtok_r(dirName,"/",&idBucket);*/
-	if((retOper == 0) && (location != NULL)){ //executou sem erros
-		retOper = parse_location(location,&srvName,&dirName,&idBucket);
-		fprintf(stdout,"Server: '%s'\n Directory: '%s'\n Bucket: '%s'\n", srvName, dirName, idBucket);
-		
-		/*invocar a funcao get_key do mod. arm.(iceph) que faz a busca do bucket
-		  e extracao do par*/
-		retOper = ss_get_key(srvName,dirName,idBucket,key,pair);
-		
-	}else{
+	/*1) obter localizacao do bucket*/
+	retOper = get_key_location(key,&local);
+	fprintf(stdout,"Server: '%s'\n Directory: '%s'\n Bucket: '%s'\n", local.srvName, local.dirName, local.idBucket);
+
+	if((retOper == 1) && (local.srvName == NULL)){
 		fprintf(stderr,"Localidade da chave não encontrada!\n");
-		
 		return 1;
 	}
-	
+
+	/*invocar a funcao get_key do mod. arm.(iceph) que faz a busca do bucket
+		e extracao do par*/
+	retOper = ss_get_key(&local,tstamp,key,pair);
+
 	/*stop = clock();
 	elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
 	fprintf(stdout,"Time elapsed in ms: %f", elapsed);*/
@@ -333,67 +247,61 @@ int get_pair(KEY_T key,PAIR_T *pair){
  *O Bucket e identificado pelo sistema de Metadados baseado no intervalo de chaves*/
 int put_pair(KEY_T key,char *value){
 
-	char *srvName,*dirName,*idBucket;
-	const char *location;
-	
+	/*apenas para teste de implementacao o tstamp sera fixado em 0
+	 *posteriormente o tstamp será estabelecido pelo relogio local*/
+	TSTAMP_T tstamp = 0;
 	//clock_t start,stop;
-	
+
 	/*sequencia de operacoes
 	 *1)obter localizacao da chave
 	 *2)solicitar ao SA a adicao da chave
 	 *3)retornar para a aplicacao*/
 
 	//clock_t start = clock();
-	
+
 	/*1) obter localizacao da chave*/
-	retOper = get_key_location(key,&location);
-	
-	if((retOper == 0) && (location != NULL)){ //executou sem erros
-		retOper = parse_location(location,&srvName,&dirName,&idBucket);
-		fprintf(stdout,"Server: '%s'\n Directory: '%s'\n Bucket: '%s'\n", srvName, dirName, idBucket);
-		
-		//2) solicitar ao SA a adicao da chave
-		retOper = ss_put_pair(srvName, dirName, idBucket, key, value);
-	
-		/*clock_t stop = clock();
-		double elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
-		printf("Time elapsed in ms: %f", elapsed);	*/
-	}else{
+	retOper = get_key_location(key,&local);
+
+	if((retOper == 1) && (local.srvName == NULL)){
 		fprintf(stderr,"Localidade da chave não encontrada!\n");
-		
 		return 1;
 	}
-	
+
+	//2) solicitar ao SA a adicao da chave
+	retOper = ss_put_data(&local,tstamp,key,value);
+
+	/*clock_t stop = clock();
+	double elapsed = (long double)(stop - start)* 1000.0 / CLOCKS_PER_SEC;
+	printf("Time elapsed in ms: %f", elapsed);	*/
+
 	return retOper;
 }
 
 /*assinatura: int rem_pair(KEY_T key)
  *descricao: Requisita a remoção de um par chave-valor identificado por uma chave especificada como parametro
  *de entrada. O Bucket é identificado pelo sistema de Metadados baseado no intervalo de chaves*/
-int rem_pair(KEY_T key){
+int remove_pair(KEY_T key){
 
-	char *srvName,*dirName,*idBucket;
-	const char *location;
-	
+	/*apenas para teste de implementacao o tstamp sera fixado em 0
+	 *posteriormente o tstamp será estabelecido pelo relogio local*/
+	TSTAMP_T tstamp = 2;
+
 	/*sequencia de operacoes
 	 *1)obter localizacao da chave
 	 *2)solicitar ao SA a remocao da chave
 	 *3)retornar para a aplicacao*/
 
 	/*1) obter localizacao da chave*/
-	retOper = get_key_location(key,&location);
-	
-	if((retOper == 0) && (location != NULL)){ //executou sem erros
-		retOper = parse_location(location,&srvName,&dirName,&idBucket);
-		fprintf(stdout,"Server: '%s'\n Directory: '%s'\n Bucket: '%s'\n", srvName, dirName, idBucket);
-	
-		//2) solicitar ao SA a remocao do par
-		retOper = ss_remove_pair(srvName,dirName,idBucket,key);
-	}else{
+	retOper = get_key_location(key,&local);
+
+	if((retOper == 1) && (local.srvName == NULL)){
 		fprintf(stderr,"Localidade da chave não encontrada!\n");
-		
+
 		return 1;
-	}  
-	
+	}
+
+	//2) solicitar ao SA a remocao do par
+	retOper = ss_remove_data(&local,tstamp,key);
+
 	return retOper;
 }

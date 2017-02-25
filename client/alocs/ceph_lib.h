@@ -1,13 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "alocs_conf.h"
 #include <rados/librados.h>
-
 
 #ifndef CEPH_LIB_H
 #define CEPH_LIB_H
 
-//variavel que recebe o retorno das operacoes 
+//variavel que recebe o retorno das operacoes
 int error;
 
 //create cluster handle
@@ -17,10 +14,10 @@ void create_handle(rados_t *cls_handle);
 void cluster_shutdown(rados_t *cluster);
 
 //create io context
-int set_server(rados_t cluster, char *srvName,rados_ioctx_t *io_ctx);
+int set_directory(rados_t cluster, char *dirName,rados_ioctx_t *io_ctx);
 
 //rados_ioctx_locator_set_key
-int set_directory(char *dirName,rados_ioctx_t *io_ctx);
+//void set_directory(char *dirName,rados_ioctx_t *io_ctx);
 
 //destroy io context
 void destroy_ioctx(rados_ioctx_t *io_ctx);
@@ -52,7 +49,7 @@ int write_object(rados_ioctx_t io_ctx,char *obj_id,char *buffer,size_t len_buff,
 //rados_write_full
 int write_object_full(rados_ioctx_t io_ctx, char *obj_id, char *buffer, size_t len_buff);
 
-//remove object 
+//remove object
 int remove_object(rados_ioctx_t io_ctx,char *obj_id);
 
 #endif

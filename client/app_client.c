@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <alocs/libalocs.h>
+#include "alocs/libalocs.h"
 
 void app_create_server();
 void app_create_dir();
@@ -92,13 +92,10 @@ void app_get_pair(){
 			
 	retOper = get_pair(key,&pair);
 	
-	if(retOper == 0){
-		printf("pair:%s\n",pair);
-		free(pair);
-	}else 
+	if(retOper == 0)
+		printf("chave:%d valor:%s\n",pair.key,pair.value);
+	else 
 		printf("Chave não encontrada!\n");
-  
-	
 }
 
 void app_remove_pair(){
@@ -106,7 +103,7 @@ void app_remove_pair(){
 	printf("Remove Pair\n");
 	printf("chave: ");scanf("%lu",&key);
 			
-	rem_pair(key);	
+	//retOper = remove_pair(key);	
 }
 
 int main () {

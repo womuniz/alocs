@@ -26,6 +26,12 @@ void itoc64(unsigned char *str,size_t length, uint64_t number){
   snprintf(str,length,"%"PRIu64,number);
 }
 
+/*prototipo uint64_t ctoi(char*,int)
+ * descricao: converte um char para inteiro
+ * parametros: str ->ponteiro para a string de entrada
+ * 						 int32 -> indica se e int32
+ *             number -> inteiro a ser convertido
+ * retorno: string contendo o uint64_t*/
 uint64_t ctoi(char *str,int int32){
 
     uint64_t ret;
@@ -60,6 +66,7 @@ void ntochr(char* str, int number){
   		str[i] = inc + str[i];
 }
 
+
 /*prototipo int chrton(unsigned char* str)
  * descricao: converte um um caracter de 4 bytes para um inteiro, funcao utilizada para 
  * 						guardar o length e o offset no slot limitando o tamanho a 4 bytes
@@ -70,7 +77,8 @@ int chrton(char* str){
   int pos,e,inc;
 	
 	inc = 32;
-	
+	number = 0;
+  
 	for(pos = BYTES_LIMIT-1,e = 0;pos >=0;pos--,e++)
 		number += (str[pos] - inc) * get_exp(BASE,e);
 	
@@ -89,6 +97,19 @@ int get_exp(int x, int n){
        return 1;
     
     return x * get_exp(x, n - 1);    
+}
+
+/*prototipo void init_str(char *str,char chr ,size_t len)
+ * descricao: inicializa uma string com um caracter definido
+ * parametros: char** str -> string que ser formatada,
+ *             char chr -> caracter que preenchera a string
+ *             size_t len -> tamanho da string
+ * retorno: ponteiro para a memoria alocada*/
+void init_str(char *str,char chr ,size_t len){
+
+  memset(str,'\0',len+1);
+  memset(str,chr,len);
+
 }
 
 /*prototipo void *xmalloc(size_t size)
